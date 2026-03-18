@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>席次表</title>
+
+<style>
+body { font-family: sans-serif; text-align: center; }
+
+textarea {
+  width: 80%;
+  height: 120px;
+  margin: 10px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 5px;
+  width: 90%;
+  margin: auto;
+}
+
+.cell {
+  border: 1px solid #ccc;
+  padding: 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.big {
+  font-size: 24px;
+  font-weight: bold;
+  margin-top: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>席次表</h2>
+
+<p>番号,氏名,フリガナ（1行ずつ）</p>
+<textarea id="input"></textarea><br>
+
+<button onclick="generateSeats()">席を作成</button>
+<button onclick="resetSeats()">リセット</button>
+
+<div id="selectedList" class="big"></div>
+<div class="grid" id="grid"></div>
+
+<script>
+// ===== 設定（ここだけ変える） =====
+const BIN_ID = "ここにあなたのBinID";
+const API_KEY = "ここにあなたのAPIキー";
+// ==============================
+
+let seats = [];
+let lastUpdate = 0;
+
+// ▼ 席作成
+function generateSeats() {
+  const text = document.getElementById("input").value.trim();
+  const lines = text.split("\n");
+
+  seats = [];
+
+  lines.forEach(line => {
+    const [no, name, kana] = line.split(",");
+    seats.push({
+      no: no,
+      name: name,
+      kana: kana,
+      status: 0
+    });
+  });
+
+  while (seats.length < 144) {
+    seats.push({ no:"", name:"空席", kana:"", status:0 });
+  }
+
+  save();
+  render();
+}
+
+// ▼ 保存（ローカル＋オンライン）
+async function save() {
+  localStorage.setItem("seats", JSON.stringify(seats));
+
+  try {
+    await fetch("https://api.jsonbin.io/v3/b/" + BIN_ID, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Master-Key": API_KEY
+      },
+      body: JSON.stringify(seats)
+    });
+  } catch(e) {
+    console.log("オンライン保存失敗");
+  }
+}
+
+// ▼ 読み込み
+async function load() {
+  // ローカル優先
+  const local = localStorage.getItem("seats");
+  if (local) {
+    seats = JSON.parse(local);
+    render();
+  }
+
+  // オンライン上書き
+  try {
+    const res = await fetch("https://api.jsonbin.io/v3/b/" + BIN_ID + "/latest", {
+      headers: { "X-Master-Key": API_KEY }
+    });
+    const data = await res.json();
+
+    if (data.record) {
+      seats = data.record;
+      render();
+    }
+  } catch(e) {
+    console.log("オンライン読込失敗");
+  }
+}
+
+// ▼ クリック
+function clickSeat(i) {
+  seats[i].status = seats[i].status ? 0 : 1;
+  save();
+  render();
+  lastUpdate = Date.now();
+}
+
+// ▼ 選択一覧（最大10人）
+function showSelectedList() {
+  const selected = seats.filter(s => s.status === 1).slice(0,10);
+
+  let html = "";
+  selected.forEach(s => {
+    html += s.name + "（" + s.kana + "）<br>";
+  });
+
+  document.getElementById("selectedList").innerHTML = html;
+}
+
+// ▼ リセット
+function resetSeats() {
+  if (!confirm("リセットする？")) return;
+  seats.forEach(s => s.status = 0);
+  save();
+  render();
+}
+
+// ▼ 描画
+function render() {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+
+  seats.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = "cell";
+
+    if (s.status === 1) div.style.background = "#ffeb3b";
+
+    div.innerHTML = (s.no ? s.no + "<br>" : "") + s.name;
+    div.onclick = () => clickSeat(i);
+
+    grid.appendChild(div);
+  });
+
+  showSelectedList();
+}
+
+// ▼ 自動同期（5秒）
+setInterval(() => {
+  if (Date.now() - lastUpdate > 3000) {
+    load();
+  }
+}, 5000);
+
+// 初回
+load();
+</script>
+
+</body>
+</html>
